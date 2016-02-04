@@ -5,7 +5,6 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Graphics2D;
-import java.awt.Image;
 import java.awt.RenderingHints;
 import java.awt.font.FontRenderContext;
 import java.awt.geom.Rectangle2D;
@@ -15,10 +14,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileFilter;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -29,6 +26,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import javax.imageio.ImageIO;
 import javax.servlet.http.HttpServletResponse;
@@ -38,6 +39,7 @@ import org.apache.commons.lang3.time.DateUtils;
 import org.apache.tika.Tika;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Controller;
@@ -53,6 +55,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.wang.resource.exceptions.NotModifiedException;
+import com.wang.services.ResizeDetail;
+import com.wang.services.ResizeService;
 import com.wang.utils.crypto.MD5;
 
 /**
@@ -63,11 +67,12 @@ import com.wang.utils.crypto.MD5;
 @RequestMapping("/")
 public class ResourceController {
 	final Logger logger = LoggerFactory.getLogger(this.getClass());
+
 	String repository = "/data/uploaded";
 	Tika tika = new Tika();
 
 	boolean watermarkEnabled = true;
-	String pressText = "www.want.com";
+	String pressText = "www.htche.com";
 	String fontName = "SimSun";
 	int fontStyle = Font.PLAIN;
 	Color color = Color.WHITE;
@@ -76,6 +81,20 @@ public class ResourceController {
 	int marginY = 2;
 	float alpha = 1f;
 	int degree = 0;
+
+	int poolSize = 25;
+	ExecutorService executor = Executors.newFixedThreadPool(poolSize);
+
+	public void setPoolSize(int poolSize) {
+		this.poolSize = poolSize;
+		executor = Executors.newFixedThreadPool(poolSize);
+	}
+
+	boolean multipleThread = true;
+
+	public void setMultipleThread(boolean multipleThread) {
+		this.multipleThread = multipleThread;
+	}
 
 	public boolean isWatermarkEnabled() {
 		return watermarkEnabled;
@@ -191,6 +210,63 @@ public class ResourceController {
 		return preferences;
 	}
 
+	@Autowired ResizeService resizeService;
+
+	/**
+	 * 上载文件
+	 * 
+	 * @param files
+	 * @param response
+	 * @return
+	 * @throws IllegalStateException
+	 * @throws IOException
+	 */
+	@RequestMapping(value = "upload", method = RequestMethod.POST, consumes = { MediaType.MULTIPART_FORM_DATA_VALUE })
+	public @ResponseBody Map<String, String> uploadFiles(@RequestParam("file") MultipartFile[] files)
+			throws IllegalStateException, IOException {
+		Map<String, String> fileMap = new HashMap<String, String>();
+
+		List<Future<Map<String, String>>> futureList = new ArrayList<Future<Map<String, String>>>();
+
+		if (multipleThread) {
+			// Upload files parallel
+
+			// Create future service
+			for (final MultipartFile file : files) {
+				Callable<Map<String, String>> callable = new Callable<Map<String, String>>() {
+					@Override
+					public Map<String, String> call() throws Exception {
+						logger.debug("[Thread-" + Thread.currentThread().getId() + "] New thread has been creating for "
+								+ file.getOriginalFilename() + " uploading");
+						return saveSingleFile(file);
+					}
+				};
+
+				Future<Map<String, String>> future = executor.submit(callable);
+				futureList.add(future);
+			}
+
+			// Collect results
+			for (Future<Map<String, String>> future : futureList) {
+				try {
+					fileMap.putAll(future.get());
+					logger.debug("Thread is finished.");
+				}
+				catch (Exception e) {
+					logger.error(e.getMessage(), e);
+				}
+			}
+		}
+		else {
+			// Upload files one by one
+			for (final MultipartFile file : files) {
+				fileMap.putAll(saveSingleFile(file));
+			}
+		}
+
+		return fileMap;
+	}
+
 	/**
 	 * 上载文件
 	 * 
@@ -203,17 +279,28 @@ public class ResourceController {
 	@RequestMapping(value = "file", method = RequestMethod.POST, consumes = { MediaType.MULTIPART_FORM_DATA_VALUE })
 	public @ResponseBody List<String> fileUpload(@RequestParam("file") MultipartFile[] files)
 			throws IllegalStateException, IOException {
-		List<String> fileMap = new ArrayList<String>();
+		return new ArrayList<String>(uploadFiles(files).values());
+	}
 
-		for (MultipartFile file : files) {
-			if (file != null) {
-				String originalFilename = file.getOriginalFilename();
+	/**
+	 * @param file
+	 * @return
+	 * @throws IOException
+	 */
+	private Map<String, String> saveSingleFile(MultipartFile file) throws IOException {
+		Map<String, String> uploadInfo = new HashMap<String, String>();
+		if (file != null) {
+			String originalFilename = file.getOriginalFilename();
+			try {
+				logger.debug(
+						"[Thread-" + Thread.currentThread().getId() + "]: " + originalFilename + " is being uploaded.");
 
 				// Generate filename
 				String extName = getExtentionName(originalFilename);
 
 				InputStream inFile = file.getInputStream();
 				byte[] bytes = IOUtils.toByteArray(inFile);
+				inFile.close();
 
 				// 为避免文件重复上载，算出文件的MD5值作为文件名
 				String fileName = MD5.hash(bytes);
@@ -221,29 +308,44 @@ public class ResourceController {
 				String repositoryPath = getFullFilePath(fileName);
 				// Save file
 				String realFileName = getRealPath(repositoryPath, fileName, extName);
-				saveFile(bytes, realFileName);
+				resizeService.saveFile(bytes, realFileName);
 
 				// Generate standard image file
 				if (isGenerateStandardImageFile() && getStandardWidth() > 0 && getStandardHeight() > 0
 						&& getMediaType(bytes).startsWith("image/")) {
 					Dimension dimension = getDimension(bytes);
 					if (dimension.getWidth() > getStandardWidth() && dimension.getHeight() > getStandardHeight()) {
-						String resizedFileName = realFileName.replace("." + extName, "_" + getStandardWidth() + "_"
+						/*String resizedFileName = realFileName.replace("." + extName, "_" + getStandardWidth() + "_"
 								+ getStandardHeight() + "." + extName);
 						logger.info("Generate standard image file: " + resizedFileName);
 						File resizedFile = new File(resizedFileName);
 						if (!resizedFile.exists()) {
-							bytes = resizeImage(bytes, extName, getStandardWidth(), getStandardHeight());
-							saveFile(bytes, resizedFileName);
-						}
+							bytes = resizeService.resizeImage(bytes, extName, getStandardWidth(), getStandardHeight());
+							resizeService.saveFile(bytes, resizedFileName);
+						}*/
+
+						// Add file to resize list
+						ResizeDetail candidate = new ResizeDetail();
+						candidate.setFilePath(realFileName);
+						candidate.setWidth(getStandardWidth());
+						candidate.setHeight(getStandardHeight());
+						resizeService.addCandidate(candidate);
 					}
 				}
 
-				fileMap.add(fileName + "." + extName);
+				logger.debug("[Thread-" + Thread.currentThread().getId() + "]: " + originalFilename + " is uploaded");
+				uploadInfo.put(originalFilename, fileName + "." + extName);
 			}
+			catch (Exception e) {
+				logger.error(e.getMessage(), e);
+				uploadInfo.put(originalFilename, null);
+			}
+
+			return uploadInfo;
 		}
 
-		return fileMap;
+		logger.debug("[Thread-" + Thread.currentThread().getId() + "]: None has been uploaded");
+		return null;
 	}
 
 	/**
@@ -329,15 +431,15 @@ public class ResourceController {
 		bytes = getResourceFile(fullPath, width, height, (null != refresh && refresh) ? null : modifySince, response);
 
 		if (getMediaType(bytes).startsWith("image/")
-				&& ((null != watermark && (watermark.toLowerCase().equals("false") || 0 == watermark.trim().length())) ? false
-						: watermarkEnabled)) {
+				&& ((null != watermark && (watermark.toLowerCase().equals("false") || 0 == watermark.trim().length()))
+						? false : watermarkEnabled)) {
 			logger.info("Applying watermark.");
 			// 如果是图片，尝试打水印
 			bytes = applyTextWatermark(bytes, null == format ? extName : format, positionX, positionY,
-					null == watermark ? pressText : watermark, fontName, null == watermarkFontStyle ? fontStyle
-							: watermarkFontStyle, null == fontColor ? color : new Color(fontColor),
-					null == watermarkAlpha ? alpha : watermarkAlpha, null == watermarkFontSize ? fontSize
-							: watermarkFontSize);
+					null == watermark ? pressText : watermark, fontName,
+					null == watermarkFontStyle ? fontStyle : watermarkFontStyle,
+					null == fontColor ? color : new Color(fontColor), null == watermarkAlpha ? alpha : watermarkAlpha,
+					null == watermarkFontSize ? fontSize : watermarkFontSize);
 		}
 
 		response.setContentLength(bytes.length);
@@ -362,7 +464,7 @@ public class ResourceController {
 	 */
 	protected byte[] applyTextWatermark(byte[] bytes, String format, Double positionX, Double positionY,
 			String pressText, String fontName, int fontStyle, Color color, float fontAlpha, int fontSize)
-			throws IOException {
+					throws IOException {
 		InputStream sourceImageFile = new ByteArrayInputStream(bytes);
 		BufferedImage srcImg = ImageIO.read(sourceImageFile);
 		Graphics2D g = (Graphics2D) srcImg.getGraphics();
@@ -437,8 +539,8 @@ public class ResourceController {
 		boolean resizedFileExists = true;
 		if (width != null || height != null) {
 			// 资源文件名
-			fileName = fullPath.replace("." + extName, "_" + (null == width ? "-" : width) + "_"
-					+ (null == height ? "-" : height) + "." + extName);
+			fileName = fullPath.replace("." + extName,
+					"_" + (null == width ? "-" : width) + "_" + (null == height ? "-" : height) + "." + extName);
 			file = new File(fileName);
 			resizedFileExists = file.exists();
 
@@ -449,8 +551,8 @@ public class ResourceController {
 				}
 				// 否则读取标准文件
 				else {
-					String standardFileName = fullPath.replace("." + extName, "_" + getStandardWidth() + "_"
-							+ getStandardHeight() + "." + extName);
+					String standardFileName = fullPath.replace("." + extName,
+							"_" + getStandardWidth() + "_" + getStandardHeight() + "." + extName);
 
 					file = new File(standardFileName);
 					// 如果标准文件不存在
@@ -475,6 +577,7 @@ public class ResourceController {
 
 		InputStream inFile = new FileInputStream(file);
 		bytes = IOUtils.toByteArray(inFile);
+		inFile.close();
 
 		if (!resizedFileExists) {
 			bytes = generateResizedResource(bytes, width, height, fileName);
@@ -502,8 +605,8 @@ public class ResourceController {
 		if (getMediaType(bytes).startsWith("image/")) {
 			// 是否图像文件，能否裁切？
 			logger.info("Resize image to " + (null == width ? "-" : width) + " x " + (null == height ? "-" : height));
-			bytes = resizeImage(bytes, extName, width, height);
-			saveFile(bytes, fileName);
+			bytes = resizeService.resizeImage(bytes, extName, width, height);
+			resizeService.saveFile(bytes, fileName);
 		}
 		else {
 			// 非图像文件，不可裁切，无法获得裁切文件数据
@@ -609,16 +712,20 @@ public class ResourceController {
 	 * @return
 	 * @throws IOException
 	 */
-	protected boolean saveFile(byte[] bytes, String dest) throws IOException {
+	/*protected boolean saveFile(byte[] bytes, String dest) throws IOException {
+		return saveFile(bytes, dest, false);
+	}*/
+
+	/*protected boolean saveFile(byte[] bytes, String dest, boolean overwrite) throws IOException {
 		File destFile = new File(dest);
-		if (!destFile.exists()) {
+		if (overwrite || !destFile.exists()) {
 			OutputStream outFile = new FileOutputStream(new File(dest));
 			outFile.write(bytes);
 			outFile.close();
 			return true;
 		}
 		return false;
-	}
+	}*/
 
 	/**
 	 * 生成新尺寸图片数据
@@ -630,31 +737,31 @@ public class ResourceController {
 	 * @return
 	 * @throws IOException
 	 */
-	protected byte[] resizeImage(byte[] bytes, String format, Integer width, Integer height) throws IOException {
+	/*protected byte[] resizeImage(byte[] bytes, String format, Integer width, Integer height) throws IOException {
 		InputStream sourceImageFile = new ByteArrayInputStream(bytes);
 		BufferedImage img = ImageIO.read(sourceImageFile);
 		Integer orginalWidth = img.getWidth();
 		Integer orginalHeight = img.getHeight();
-
+	
 		if (null == width) {
 			width = Math.round(orginalWidth * (height.floatValue() / orginalHeight.floatValue()));
 		}
 		if (null == height) {
 			height = Math.round((orginalHeight * (width.floatValue() / orginalWidth.floatValue())));
 		}
-
+	
 		Image scaledImg = img.getScaledInstance(width, height, Image.SCALE_SMOOTH);
-
+	
 		BufferedImage thumbnail = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
 		thumbnail.createGraphics().drawImage(scaledImg, 0, 0, null);
-
+	
 		ByteArrayOutputStream out = new ByteArrayOutputStream();
 		ImageIO.write(thumbnail, format, out);
-
+	
 		byte[] imageBytes = out.toByteArray();
-
+	
 		return imageBytes;
-	}
+	}*/
 
 	/**
 	 * 获得文件类型

@@ -80,6 +80,8 @@
 		<property name="standardHeight" value="${resource.image.standardHeight}" />
 		<property name="generateStandardImageFile" value="${resource.image.generateStandardImageFile}" />
 		<property name="pressText" value="${resource.image.watermark.text}" />
+		<property name="multipleThread" value="false" />
+		<property name="poolSize" value="5" />
 	</bean>
 	
 	<!-- 
