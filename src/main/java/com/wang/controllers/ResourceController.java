@@ -9,13 +9,7 @@ import java.awt.RenderingHints;
 import java.awt.font.FontRenderContext;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileFilter;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -68,7 +62,7 @@ import com.wang.utils.crypto.MD5;
 public class ResourceController {
 	final Logger logger = LoggerFactory.getLogger(this.getClass());
 
-	String repository = "/data/uploaded";
+	String repository = "/opt/wang/resource-server/data/uploaded";
 	Tika tika = new Tika();
 
 	boolean watermarkEnabled = true;
@@ -81,6 +75,8 @@ public class ResourceController {
 	int marginY = 2;
 	float alpha = 1f;
 	int degree = 0;
+	int cacheSizeForOneFile = -1;
+	String cacheTemporaryFolder = null;
 
 	int poolSize = 25;
 	ExecutorService executor = Executors.newFixedThreadPool(poolSize);
@@ -160,6 +156,14 @@ public class ResourceController {
 		this.degree = degree;
 	}
 
+	public void setCacheSizeForOneFile(int cacheSizeForOneFile) {
+		this.cacheSizeForOneFile = cacheSizeForOneFile;
+	}
+
+	public void setCacheTemporaryFolder(String cacheTemporaryFolder) {
+		this.cacheTemporaryFolder = cacheTemporaryFolder;
+	}
+
 	Map<String, Object> preferences = new HashMap<String, Object>();
 
 	public static final String PREFERENCE_NAME_STANDARD_WIDTH = "STANDARD_WIDTH";
@@ -216,7 +220,6 @@ public class ResourceController {
 	 * 上载文件
 	 * 
 	 * @param files
-	 * @param response
 	 * @return
 	 * @throws IllegalStateException
 	 * @throws IOException
@@ -271,7 +274,6 @@ public class ResourceController {
 	 * 上载文件
 	 * 
 	 * @param files
-	 * @param response
 	 * @return
 	 * @throws IllegalStateException
 	 * @throws IOException
@@ -299,38 +301,12 @@ public class ResourceController {
 				String extName = getExtentionName(originalFilename);
 
 				InputStream inFile = file.getInputStream();
-				byte[] bytes = IOUtils.toByteArray(inFile);
-				inFile.close();
-
-				// 为避免文件重复上载，算出文件的MD5值作为文件名
-				String fileName = MD5.hash(bytes);
-
-				String repositoryPath = getFullFilePath(fileName);
-				// Save file
-				String realFileName = getRealPath(repositoryPath, fileName, extName);
-				resizeService.saveFile(bytes, realFileName);
-
-				// Generate standard image file
-				if (isGenerateStandardImageFile() && getStandardWidth() > 0 && getStandardHeight() > 0
-						&& getMediaType(bytes).startsWith("image/")) {
-					Dimension dimension = getDimension(bytes);
-					if (dimension.getWidth() > getStandardWidth() && dimension.getHeight() > getStandardHeight()) {
-						/*String resizedFileName = realFileName.replace("." + extName, "_" + getStandardWidth() + "_"
-								+ getStandardHeight() + "." + extName);
-						logger.info("Generate standard image file: " + resizedFileName);
-						File resizedFile = new File(resizedFileName);
-						if (!resizedFile.exists()) {
-							bytes = resizeService.resizeImage(bytes, extName, getStandardWidth(), getStandardHeight());
-							resizeService.saveFile(bytes, resizedFileName);
-						}*/
-
-						// Add file to resize list
-						ResizeDetail candidate = new ResizeDetail();
-						candidate.setFilePath(realFileName);
-						candidate.setWidth(getStandardWidth());
-						candidate.setHeight(getStandardHeight());
-						resizeService.addCandidate(candidate);
-					}
+				String fileName = null;
+				if(0 > cacheSizeForOneFile || file.getSize() < cacheSizeForOneFile) {
+					fileName = receiveFile(inFile, extName);
+				}
+				else {
+					fileName = receiveFileByBuffer(inFile, extName);
 				}
 
 				logger.debug("[Thread-" + Thread.currentThread().getId() + "]: " + originalFilename + " is uploaded");
@@ -346,6 +322,101 @@ public class ResourceController {
 
 		logger.debug("[Thread-" + Thread.currentThread().getId() + "]: None has been uploaded");
 		return null;
+	}
+
+	/**
+	 * Receive file with fully memory buffer
+	 *
+	 * @param inFile
+	 * @param extName
+	 * @return
+	 * @throws IOException
+     */
+	private String receiveFile(InputStream inFile, String extName) throws IOException {
+		byte[] bytes = IOUtils.toByteArray(inFile);
+		inFile.close();
+
+		// 为避免文件重复上载，算出文件的MD5值作为文件名
+		String fileName = MD5.hash(bytes);
+
+		String repositoryPath = getFullFilePath(fileName);
+		// Save file
+		String realFileName = getRealPath(repositoryPath, fileName, extName);
+		//resizeService.saveFile(bytes, realFileName);
+		File destFile = new File(realFileName);
+		if (!destFile.exists()) {
+			OutputStream outFile = new FileOutputStream(new File(realFileName));
+			outFile.write(bytes);
+			outFile.close();
+		}
+
+		// Generate standard image file
+		generateStandardImageFile(bytes, realFileName);
+
+		return fileName;
+	}
+
+	/**
+	 * Receive file with disk buffer
+	 *
+	 * @param inFile
+	 * @param extName
+	 * @return
+	 * @throws IOException
+     */
+	private String receiveFileByBuffer(InputStream inFile, String extName) throws IOException {
+		MD5 md5 = new MD5();
+
+		File tempFile = File.createTempFile("temp", ".tmp", null == cacheTemporaryFolder?null:new File(cacheTemporaryFolder));
+		tempFile.deleteOnExit();
+		FileOutputStream tempOut = new FileOutputStream(tempFile);
+
+		byte[] buffer = new byte[cacheSizeForOneFile];
+		int byteread;
+		while((byteread = inFile.read(buffer)) != -1){
+			tempOut.write(buffer, 0, byteread);
+			md5.update(buffer, 0, byteread);
+		}
+		tempOut.close();
+		inFile.close();
+		String fileName = md5.digest();
+
+		String repositoryPath = getFullFilePath(fileName);// Save file
+		String realFileName = getRealPath(repositoryPath, fileName, extName);
+		if (!(new File(realFileName)).exists()) {
+			tempFile.renameTo(new File(realFileName));
+		}
+
+		generateStandardImageFile(realFileName);
+
+		return fileName;
+	}
+
+	private void generateStandardImageFile(String realFileName) throws IOException{
+		if (isGenerateStandardImageFile() && getStandardWidth() > 0 && getStandardHeight() > 0
+				&& getMediaType(realFileName).startsWith("image/")) {
+			Dimension dimension = getDimension(realFileName);
+			generateStandardImageFile(dimension, realFileName);
+		}
+	}
+
+	private void generateStandardImageFile(byte[] bytes, String realFileName) throws IOException {
+		if (isGenerateStandardImageFile() && getStandardWidth() > 0 && getStandardHeight() > 0
+				&& getMediaType(bytes).startsWith("image/")) {
+			Dimension dimension = getDimension(bytes);
+			generateStandardImageFile(dimension, realFileName);
+		}
+	}
+
+	private void generateStandardImageFile(Dimension dimension, String realFileName) throws IOException {
+		if (dimension.getWidth() > getStandardWidth() && dimension.getHeight() > getStandardHeight()) {
+			// Add file to resize list
+			ResizeDetail candidate = new ResizeDetail();
+			candidate.setFilePath(realFileName);
+			candidate.setWidth(getStandardWidth());
+			candidate.setHeight(getStandardHeight());
+			resizeService.addCandidate(candidate);
+		}
 	}
 
 	/**
@@ -772,7 +843,9 @@ public class ResourceController {
 	private String getMediaType(byte[] content) {
 		return tika.detect(content);
 	}
-
+	private String getMediaType(String filePath) {
+		return tika.detect(filePath);
+	}
 	/**
 	 * 获得图片尺寸
 	 * 
@@ -787,6 +860,12 @@ public class ResourceController {
 		return dimension;
 	}
 
+	private Dimension getDimension(String filePath) throws IOException {
+		Dimension dimension = new Dimension();
+		BufferedImage img = ImageIO.read(new File(filePath));
+		dimension.setSize(img.getWidth(), img.getHeight());
+		return dimension;
+	}
 	/**
 	 * 文件过滤器
 	 * 

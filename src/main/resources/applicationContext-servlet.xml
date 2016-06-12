@@ -19,14 +19,13 @@
 		
 	<!-- Make this available across all of Spring MVC -->
 	
-	<bean
-	class="org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter">
-	<property name="messageConverters">
-		<list>
-			<ref bean="mappingJacksonHttpMessageConverter" />
-		</list>
-	</property>
-</bean>
+	<bean class="org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter">
+		<property name="messageConverters">
+			<list>
+				<ref bean="mappingJacksonHttpMessageConverter" />
+			</list>
+		</property>
+	</bean>
 
 	<bean id="mappingJacksonHttpMessageConverter"
 		class="org.springframework.http.converter.json.MappingJacksonHttpMessageConverter">
@@ -61,11 +60,11 @@
 	<context:property-placeholder location="classpath:application.properties" />
 
 	<!-- component-scan will auto populate controllers -->
-	<!-- <context:component-scan base-package="com.wang"> <context:include-filter 
-		type="annotation" expression="org.springframework.stereotype.Controller" 
-		/> <context:exclude-filter type="annotation" expression="org.springframework.stereotype.Service" 
-		/> <context:exclude-filter type="annotation" expression="org.springframework.stereotype.Repository" 
-		/> </context:component-scan> -->
+	 <context:component-scan base-package="com.wang">
+	     <context:exclude-filter type="annotation" expression="org.springframework.stereotype.Controller" />
+		 <!-- context:include-filter type="annotation" expression="org.springframework.stereotype.Service" />
+		 <context:include-filter type="annotation" expression="org.springframework.stereotype.Repository" / -->
+	 </context:component-scan>
 
 	<bean id="multipartResolver"
 		class="org.springframework.web.multipart.commons.CommonsMultipartResolver">
@@ -82,6 +81,8 @@
 		<property name="pressText" value="${resource.image.watermark.text}" />
 		<property name="multipleThread" value="false" />
 		<property name="poolSize" value="5" />
+		<property name="cacheSizeForOneFile" value="${resource.cache.sizeForOneFile}" />
+		<!-- property name="cacheTemporaryFolder" value="${resource.cache.temporaryFolder}" / -->
 	</bean>
 	
 	<!-- 
@@ -90,7 +91,4 @@
 		<property name="defaultContentType" value="text/json" />
 	</bean>
 	 -->
-	
-	
-
 </beans>
