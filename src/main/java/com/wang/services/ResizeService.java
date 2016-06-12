@@ -107,10 +107,12 @@ public class ResizeService {
 	 * @return
 	 * @throws IOException
 	 */
+	@Deprecated
 	public boolean saveFile(byte[] bytes, String dest) throws IOException {
 		return saveFile(bytes, dest, false);
 	}
 
+	@Deprecated
 	public boolean saveFile(byte[] bytes, String dest, boolean overwrite) throws IOException {
 		File destFile = new File(dest);
 		if (overwrite || !destFile.exists()) {
