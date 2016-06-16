@@ -1,0 +1,6 @@
+/resource-service.iml
+/.idea
+/target/
+/.settings
+.project
+.classpath
