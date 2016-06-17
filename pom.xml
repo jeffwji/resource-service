@@ -178,7 +178,7 @@
 							<goal>start</goal>
 						</goals>
 						<configuration>
-							<daemon>true</daemon>
+							<!--<daemon>true</daemon>-->
 							<scanIntervalSeconds>0</scanIntervalSeconds>
 						</configuration>
 					</execution>
