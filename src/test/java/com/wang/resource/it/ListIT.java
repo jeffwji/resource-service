@@ -17,7 +17,7 @@ public class ListIT {
 	Logger logger = LoggerFactory.getLogger(this.getClass());
 
 	RestClient restClient = new RestClient();
-	final static String listUrl = "http://localhost:8080/list";
+	final static String listUrl = "http://localhost:8080/resource-server/list";
 
 	@Test
 	public void testListFolder() throws KeyManagementException, ClientProtocolException, NoSuchAlgorithmException,
