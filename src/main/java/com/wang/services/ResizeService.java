@@ -15,7 +15,7 @@ import java.util.LinkedList;
 import javax.annotation.PostConstruct;
 import javax.imageio.ImageIO;
 
-import com.wang.utils.crypto.MD5;
+import net.tinybrick.utils.crypto.MD5;
 import org.apache.commons.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

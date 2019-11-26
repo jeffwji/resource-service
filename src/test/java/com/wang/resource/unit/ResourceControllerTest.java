@@ -45,17 +45,17 @@ public class ResourceControllerTest extends ControllerTestBase {
 
 	@Test
 	public void testDownloadImage() throws Exception {
-		ResultActions resultActions = mockMvc.perform(get("/file/453D0F5EB5B028F22486C2DC9EF6B093.jpg")
+		ResultActions resultActions = mockMvc.perform(get("/file/7079D463082FA28E5904DB71E0CEC2B3.jpg")
 				.session(session).accept(MediaType.IMAGE_JPEG_VALUE));
-		resultActions.andDo(print()).andExpect(status().isOk());
+		resultActions.andExpect(status().isOk());
 
-		resultActions = mockMvc.perform(get("/file/453D0F5EB5B028F22486C2DC9EF6B093.jpg?width=100&height=80").session(
+		resultActions = mockMvc.perform(get("/file/7079D463082FA28E5904DB71E0CEC2B3.jpg?width=100&height=80").session(
 				session).accept(MediaType.IMAGE_JPEG_VALUE));
-		resultActions.andDo(print()).andExpect(status().isOk());
+		resultActions.andExpect(status().isOk());
 
-		resultActions = mockMvc.perform(get("/file/453D0F5EB5B028F22486C2DC9EF6B093.jpg?width=200&height=180").session(
+		resultActions = mockMvc.perform(get("/file/7079D463082FA28E5904DB71E0CEC2B3.jpg?width=200&height=180").session(
 				session).accept(MediaType.IMAGE_JPEG_VALUE));
-		resultActions.andDo(print()).andExpect(status().isOk());
+		resultActions.andExpect(status().isOk());
 
 		return;
 	}
@@ -75,13 +75,13 @@ public class ResourceControllerTest extends ControllerTestBase {
 
 	@Test
 	public void testDownloadPdfFile() throws Exception {
-		ResultActions resultActions = mockMvc.perform(get("/file/832EB1D7A2C47B340F4A4BB205B72471.pdf")
+		ResultActions resultActions = mockMvc.perform(get("/file/DC01E80DE9D0B64408664E95F879FD57.pdf")
 				.session(session).accept(MediaType.ALL_VALUE));
-		resultActions.andDo(print()).andExpect(status().isOk());
+		resultActions.andExpect(status().isOk());
 
-		resultActions = mockMvc.perform(get("/file/832EB1D7A2C47B340F4A4BB205B72471.pdf?width=100&height=80").session(
+		resultActions = mockMvc.perform(get("/file/DC01E80DE9D0B64408664E95F879FD57.pdf?width=100&height=80").session(
 				session).accept(MediaType.ALL_VALUE));
-		resultActions.andDo(print()).andExpect(status().isOk());
+		resultActions.andExpect(status().isOk());
 
 		return;
 	}

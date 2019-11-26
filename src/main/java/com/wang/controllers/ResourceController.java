@@ -51,7 +51,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.wang.resource.exceptions.NotModifiedException;
 import com.wang.services.ResizeDetail;
 import com.wang.services.ResizeService;
-import com.wang.utils.crypto.MD5;
+import net.tinybrick.utils.crypto.MD5;
 
 /**
  * @author jeff
@@ -66,7 +66,7 @@ public class ResourceController {
 	Tika tika = new Tika();
 
 	boolean watermarkEnabled = true;
-	String pressText = "www.htche.com";
+	private String pressText = "www.dolink.cc";
 	String fontName = "SimSun";
 	int fontStyle = Font.PLAIN;
 	Color color = Color.WHITE;
@@ -375,7 +375,7 @@ public class ResourceController {
 		int byteread;
 		while((byteread = inFile.read(buffer)) != -1){
 			tempOut.write(buffer, 0, byteread);
-			md5.update(buffer, 0, byteread);
+			md5.update(buffer);
 		}
 		tempOut.close();
 		inFile.close();

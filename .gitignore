@@ -1,4 +1,4 @@
-/resource-service.iml
+*.iml
 /.idea
 /target/
 /.settings
