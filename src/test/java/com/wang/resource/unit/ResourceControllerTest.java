@@ -9,6 +9,8 @@ import java.io.InputStream;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
@@ -19,6 +21,8 @@ import com.wang.test.ControllerTestBase;
 
 @RunWith(SpringJUnit4ClassRunner.class)
 public class ResourceControllerTest extends ControllerTestBase {
+	Logger logger = LoggerFactory.getLogger(this.getClass());
+
 	static final String testJpeg = "/测试.jpg";
 	static final String testPdf = "/Readme.pdf";
 
@@ -65,6 +69,8 @@ public class ResourceControllerTest extends ControllerTestBase {
 		InputStream fis = this.getClass().getResourceAsStream(testPdf);
 		MockMultipartFile multipartFile = new MockMultipartFile("file", testPdf, null,
 				FileCopyUtils.copyToByteArray(fis));
+
+		logger.debug("Size of file: " + multipartFile.getSize());
 
 		ResultActions resultActions = mockMvc.perform(fileUpload("/file").file(multipartFile).session(session)
 				.contentType(MediaType.MULTIPART_FORM_DATA).accept(MediaType.APPLICATION_JSON));
